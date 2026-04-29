@@ -5,158 +5,140 @@ import re
 import json
 import os
 
-# 1. 페이지 설정 및 초기화
-st.set_page_config(layout="wide", page_title="DeepSeek-V3.2 AI Live Architect")
+# 1. 페이지 설정
+st.set_page_config(layout="wide", page_title="AI Self-Modifying Chat")
 
 # 저장 폴더 설정
-SAVE_DIR = "saved_designs"
+SAVE_DIR = "chat_sessions"
 if not os.path.exists(SAVE_DIR):
     os.makedirs(SAVE_DIR)
 
-# 세션 상태 초기화
+# 2. 세션 상태 초기화
 if "messages" not in st.session_state:
-    st.session_state.messages = [] # 채팅 내역
-if "current_code" not in st.session_state:
-    st.session_state.current_code = "" # 현재 HTML 코드
-if "current_save_name" not in st.session_state:
-    st.session_state.current_save_name = ""
+    st.session_state.messages = [] # 대화 내용
+if "dynamic_css" not in st.session_state:
+    st.session_state.dynamic_css = "" # 앱에 주입될 CSS
+if "dynamic_js" not in st.session_state:
+    st.session_state.dynamic_js = "" # 앱에 주입될 JS (고래 등 애니메이션)
 
-# 2. API 설정
+# 3. API 설정
 try:
     API_KEY = st.secrets["SAMBANOVA_API_KEY"]
     client = OpenAI(api_key=API_KEY, base_url="https://api.sambanova.ai/v1")
 except:
-    st.error("API Key 설정이 필요합니다 (Streamlit Secrets)")
+    st.error("Streamlit Secrets에 SAMBANOVA_API_KEY를 설정해주세요.")
     st.stop()
 
-# 3. 주요 함수들
-def extract_code(text):
-    pattern = r"```(?:html)?\n(.*?)```"
-    match = re.search(pattern, text, re.DOTALL)
-    return match.group(1).strip() if match else text
+# 4. 스타일 및 스크립트 주입 함수
+def apply_custom_style():
+    # CSS 주입
+    st.markdown(f"<style>{st.session_state.dynamic_css}</style>", unsafe_allow_html=True)
+    # JS 주입 (고래 날아다니기 등 애니메이션 처리용)
+    if st.session_state.dynamic_js:
+        components.html(f"<script>{st.session_state.dynamic_js}</script>", height=0)
 
-def save_design(name, code, history):
-    filename = os.path.join(SAVE_DIR, f"{name}.json")
-    data = {"code": code, "history": history}
-    with open(filename, "w", encoding="utf-8") as f:
+# 5. 저장/불러오기 기능
+def save_chat(name):
+    data = {
+        "messages": st.session_state.messages,
+        "css": st.session_state.dynamic_css,
+        "js": st.session_state.dynamic_js
+    }
+    with open(os.path.join(SAVE_DIR, f"{name}.json"), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-def load_design(name):
-    filename = os.path.join(SAVE_DIR, f"{name}.json")
-    if os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return None
+def load_chat(name):
+    path = os.path.join(SAVE_DIR, f"{name}.json")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            st.session_state.messages = data["messages"]
+            st.session_state.dynamic_css = data["css"]
+            st.session_state.dynamic_js = data["js"]
+            return True
+    return False
 
-# 4. 사이드바 (저장/불러오기/초기화)
+# 6. 사이드바 (저장/불러오기)
 with st.sidebar:
-    st.title("📂 저장 및 불러오기")
+    st.title("💾 저장소")
+    save_name = st.text_input("현재 상태 저장 이름")
+    if st.button("서버에 저장"):
+        if save_name:
+            save_chat(save_name)
+            st.success("저장 완료!")
     
-    # 저장하기
-    save_name = st.text_input("디자인 이름", value=st.session_state.current_save_name)
-    if st.button("💾 서버에 저장"):
-        if save_name and st.session_state.current_code:
-            save_design(save_name, st.session_state.current_code, st.session_state.messages)
-            st.success(f"'{save_name}' 저장 완료!")
-            st.rerun()
-        else:
-            st.warning("이름과 코드가 필요합니다.")
-
     st.divider()
-
-    # 불러오기
-    saved_files = [f.replace(".json", "") for f in os.listdir(SAVE_DIR) if f.endswith(".json")]
-    selected_load = st.selectbox("불러올 디자인 선택", ["선택 안 함"] + saved_files)
-    if st.button("📂 불러오기"):
-        if selected_load != "선택 안 함":
-            data = load_design(selected_load)
-            if data:
-                st.session_state.current_code = data["code"]
-                st.session_state.messages = data["history"]
-                st.session_state.current_save_name = selected_load
-                st.success("로드 성공!")
+    
+    files = [f.replace(".json", "") for f in os.listdir(SAVE_DIR) if f.endswith(".json")]
+    selected_file = st.selectbox("불러오기", ["선택 안 함"] + files)
+    if st.button("로드하기"):
+        if selected_file != "선택 안 함":
+            if load_chat(selected_file):
                 st.rerun()
 
-    st.divider()
-    
-    if st.button("🗑️ 대화 초기화"):
+    if st.button("🗑️ 모든 초기화"):
         st.session_state.messages = []
-        st.session_state.current_code = ""
-        st.session_state.current_save_name = ""
+        st.session_state.dynamic_css = ""
+        st.session_state.dynamic_js = ""
         st.rerun()
 
-# 5. 메인 레이아웃 (왼쪽: 채팅 / 오른쪽: 프리뷰)
-col_chat, col_preview = st.columns([4, 6])
+# 7. 메인 채팅 UI
+st.title("🌈 Magic UI AI Chat")
+st.caption("DeepSeek-V3.2가 대화 내용에 맞춰 앱의 UI를 실시간으로 변경합니다.")
 
-with col_chat:
-    st.subheader("💬 AI Designer Chat")
-    
-    # 채팅 내역 표시
-    chat_container = st.container(height=500)
-    for message in st.session_state.messages:
-        with chat_container.chat_message(message["role"]):
-            st.markdown(message["content"])
+# 현재까지의 스타일 적용
+apply_custom_style()
 
-    # 채팅 입력
-    if prompt := st.chat_input("디자인 수정을 요청하세요..."):
-        # 1. 사용자 메시지 추가
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with chat_container.chat_message("user"):
-            st.markdown(prompt)
+# 채팅 내역 표시
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-        # 2. AI 응답 생성
-        with chat_container.chat_message("assistant"):
-            with st.spinner("생각 중..."):
-                # 이전 코드를 포함하여 시스템 프롬프트 작성
-                system_msg = f"""You are a professional web designer. 
-                CURRENT_CODE:
-                {st.session_state.current_code}
-                
-                Instruction:
-                1. Modify the CURRENT_CODE based on user request.
-                2. ALWAYS return the FULL complete HTML/CSS/JS code in a markdown block.
-                3. Briefly explain what you changed before the code block."""
-                
-                messages = [{"role": "system", "content": system_msg}] + st.session_state.messages[-5:] # 최근 5대화 유지
-                
-                response = client.chat.completions.create(
-                    model="DeepSeek-V3.2",
-                    messages=messages,
-                    temperature=0.1
-                )
-                
-                full_response = response.choices[0].message.content
-                st.markdown(full_response)
-                
-                # 코드 추출 및 상태 업데이트
-                new_code = extract_code(full_response)
-                if new_code:
-                    st.session_state.current_code = new_code
-                
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
+# 채팅 입력
+if prompt := st.chat_input("메시지를 입력하세요 (예: 배경에 고래가 날라다니게 해줘)"):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # AI 응답 생성
+    with st.chat_message("assistant"):
+        with st.spinner("생각 중..."):
+            system_prompt = f"""You are a UI magician.
+            - If user asks for visual changes (rainbow text, animations, colors), provide CSS/JS code.
+            - CSS selector info:
+              - App background: `.stApp`
+              - Chat messages: `[data-testid="stChatMessage"]`
+              - Chat text: `[data-testid="stChatMessageContent"] p`
+              - Chat input: `[data-testid="stChatInput"] textarea`
+            - Format for styling: Wrap CSS in [CSS] tags and JS in [JS] tags.
+            - If it's a normal conversation, just talk naturally.
+            - ALWAYS include the updated styling code if the user requested a change.
+            - CURRENT CSS: {st.session_state.dynamic_css}
+            """
+            
+            response = client.chat.completions.create(
+                model="DeepSeek-V3.2",
+                messages=[{"role": "system", "content": system_prompt}] + st.session_state.messages[-10:],
+                temperature=0.3
+            )
+            
+            full_res = response.choices[0].message.content
+            
+            # 스타일 추출
+            css_match = re.search(r"\[CSS\](.*?)\[/CSS\]", full_res, re.DOTALL)
+            js_match = re.search(r"\[JS\](.*?)\[/JS\]", full_res, re.DOTALL)
+            
+            clean_res = re.sub(r"\[CSS\].*?\[/CSS\]", "", full_res, flags=re.DOTALL)
+            clean_res = re.sub(r"\[JS\].*?\[/JS\]", "", clean_res, flags=re.DOTALL)
+            
+            if css_match:
+                st.session_state.dynamic_css = css_match.group(1).strip()
+            if js_match:
+                st.session_state.dynamic_js = js_match.group(1).strip()
+            
+            st.markdown(clean_res)
+            st.session_state.messages.append({"role": "assistant", "content": clean_res})
+            
+            # 스타일 변경 사항이 있으면 즉시 리런해서 반영
+            if css_match or js_match:
                 st.rerun()
-
-with col_preview:
-    st.subheader("💻 Live Design Preview")
-    
-    if st.session_state.current_code:
-        # 아이패드용 새 탭 열기 자바스크립트
-        escaped_code = st.session_state.current_code.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
-        js_button = f"""
-            <script>
-            function openInNewTab() {{
-                var win = window.open('', '_blank');
-                win.document.write(`{escaped_code}`);
-                win.document.close();
-            }}
-            </script>
-            <button onclick="openInNewTab()" style="width:100%; padding:15px; background:#28a745; color:white; border:none; border-radius:10px; font-weight:bold; cursor:pointer;">
-                🌐 전체 화면으로 보기 (새 탭)
-            </button>
-        """
-        components.html(js_button, height=80)
-        
-        # 앱 내 프리뷰
-        components.html(st.session_state.current_code, height=750, scrolling=True)
-    else:
-        st.info("채팅으로 원하는 웹사이트 디자인을 말해보세요!")
