@@ -3,94 +3,95 @@ import streamlit.components.v1 as components
 from openai import OpenAI
 import re
 
-# 페이지 전체 화면 사용 및 제목 설정
-st.set_page_config(layout="wide", page_title="DeepSeek HTML Generator")
+# 페이지 설정
+st.set_page_config(layout="wide", page_title="SambaNova AI Code Builder")
 
-# CSS로 UI 스타일 살짝 조정
+# 스타일 설정
 st.markdown("""
     <style>
-    .main { background-color: #f5f7f9; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #FF4B4B; color: white; }
+    .stButton>button { width: 100%; background-color: #007BFF; color: white; height: 3em; }
+    iframe { border: 1px solid #ddd; border-radius: 8px; background: white; }
     </style>
     """, unsafe_allow_html=True)
 
-# 사이드바 설정
+# 1. API 키 설정 (Streamlit Secrets 사용)
+# 배포 시 Streamlit Cloud 설정에서 SAMBANOVA_API_KEY를 추가해야 합니다.
+try:
+    API_KEY = st.secrets["SAMBANOVA_API_KEY"]
+    BASE_URL = "https://api.sambanova.ai/v1"
+    client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+except Exception:
+    st.error("❌ API Key가 설정되지 않았습니다. Streamlit Cloud의 Secrets 설정에서 SAMBANOVA_API_KEY를 추가해주세요.")
+    st.stop()
+
+# 2. 사용 가능한 모델 목록 가져오기
+@st.cache_data(ttl=3600) # 모델 목록은 1시간 동안 캐싱
+def get_models():
+    try:
+        models = client.models.list()
+        return [model.id for model in models.data]
+    except Exception as e:
+        st.sidebar.error(f"모델 목록을 불러오지 못했습니다: {e}")
+        return ["DeepSeek-V3", "Meta-Llama-3.1-405B-Instruct", "Meta-Llama-3.1-70B-Instruct"]
+
+# 사이드바 구성
 with st.sidebar:
-    st.title("⚙️ 설정")
-    api_key = st.text_input("SambaNova API Key를 입력하세요", type="password")
-    st.info("SambaNova Cloud에서 발급받은 API 키가 필요합니다.")
-    model_id = "DeepSeek-V3"
+    st.title("🤖 모델 설정")
+    available_models = get_models()
+    selected_model = st.selectbox("사용할 모델을 선택하세요", available_models, index=0)
+    st.divider()
+    st.info("이 앱은 SambaNova API를 사용하여 실시간 HTML 코드를 생성합니다.")
 
-# 코드 추출 함수
-def extract_code(text):
-    # ```html ... ``` 블록 찾기
-    code_match = re.search(r"```html\n(.*?)```", text, re.DOTALL)
-    if code_match:
-        return code_match.group(1)
-    # 블록이 없으면 ``` ... ``` 전체 찾기
-    code_match = re.search(r"```\n(.*?)```", text, re.DOTALL)
-    if code_match:
-        return code_match.group(1)
-    return text # 아무것도 없으면 전체 반환
+# 코드 추출 정규식 함수
+def extract_html_code(text):
+    # ```html ... ``` 또는 ``` ... ``` 블록 추출
+    pattern = r"```(?:html)?\n(.*?)```"
+    match = re.search(pattern, text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
 
-# 메인 화면
-st.title("🎨 DeepSeek-V3 실시간 웹 디자이너")
-st.write("프롬프트를 입력하면 HTML/CSS/JS 코드를 짜고 바로 옆에서 실행해줍니다.")
+# 메인 UI
+st.title("🚀 AI Real-time HTML Designer")
 
-# 세션 상태 초기화 (결과 유지용)
-if "code" not in st.session_state:
-    st.session_state.code = """<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f0f2f5; }
-        h1 { color: #333; }
-    </style>
-</head>
-<body>
-    <h1>여기에 결과가 표시됩니다.</h1>
-</body>
-</html>"""
+if "html_code" not in st.session_state:
+    st.session_state.html_code = """
+    <div style="display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;">
+        <h2 style="color:#888;">왼쪽에 프롬프트를 입력하고 버튼을 눌러보세요!</h2>
+    </div>
+    """
 
-# 입력창
-user_prompt = st.text_area("어떤 웹 기능을 만들까요?", placeholder="예: 무지개색으로 변하는 버튼이 있는 계산기 만들어줘", height=100)
+# 프롬프트 입력창
+prompt = st.text_area("어떤 웹 페이지를 만들고 싶나요?", placeholder="예: 깔끔한 다크모드 대시보드, 애니메이션이 있는 시계 등", height=150)
 
-if st.button("코드 생성 및 실행 ✨"):
-    if not api_key:
-        st.error("API 키를 입력해주세요!")
-    elif not user_prompt:
-        st.warning("내용을 입력해주세요!")
-    else:
-        try:
-            with st.spinner("SambaNova DeepSeek가 코드를 작성 중입니다..."):
-                client = OpenAI(
-                    base_url="https://api.sambanova.ai/v1",
-                    api_key=api_key
-                )
-                
+if st.button("코드 생성 및 실행"):
+    if prompt:
+        with st.spinner(f"{selected_model} 모델이 코드를 생성 중..."):
+            try:
                 response = client.chat.completions.create(
-                    model=model_id,
+                    model=selected_model,
                     messages=[
-                        {"role": "system", "content": "You are a professional web developer. Create a single, complete HTML file including CSS and JavaScript. Only provide the code block."},
-                        {"role": "user", "content": user_prompt}
+                        {"role": "system", "content": "You are a master web developer. Create a single-file HTML/CSS/JS solution. Output ONLY the code inside markdown code blocks."},
+                        {"role": "user", "content": prompt}
                     ],
                     temperature=0.1
                 )
-                
                 raw_content = response.choices[0].message.content
-                st.session_state.code = extract_code(raw_content)
-        except Exception as e:
-            st.error(f"오류가 발생했습니다: {str(e)}")
+                st.session_state.html_code = extract_html_code(raw_content)
+            except Exception as e:
+                st.error(f"API 호출 중 오류 발생: {e}")
+    else:
+        st.warning("프롬프트를 입력해주세요.")
 
-# 2분할 레이아웃
-col_code, col_preview = st.columns(2)
+# 화면 분할 (코드창 4 : 미리보기 6 비율)
+col_code, col_preview = st.columns([4, 6])
 
 with col_code:
-    st.subheader("📝 생성된 코드")
-    st.code(st.session_state.code, language="html", line_numbers=True)
-    st.download_button("코드 다운로드", st.session_state.code, file_name="index.html", mime="text/html")
+    st.subheader("📄 Generated Code")
+    st.code(st.session_state.html_code, language="html", line_numbers=True)
+    st.download_button("index.html 다운로드", st.session_state.html_code, file_name="index.html")
 
 with col_preview:
-    st.subheader("👀 실시간 미리보기")
-    # iframe 형태로 HTML 실행
-    components.html(st.session_state.code, height=600, scrolling=True)
+    st.subheader("💻 Live Preview")
+    # iframe 생성
+    components.html(st.session_state.html_code, height=700, scrolling=True)
