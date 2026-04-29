@@ -5,140 +5,143 @@ import re
 import json
 import os
 
-# 1. 페이지 설정
-st.set_page_config(layout="wide", page_title="AI Self-Modifying Chat")
+# 1. 페이지 설정 (가장 먼저 실행)
+st.set_page_config(layout="wide", page_title="AI Magic UI Chat")
 
 # 저장 폴더 설정
 SAVE_DIR = "chat_sessions"
 if not os.path.exists(SAVE_DIR):
     os.makedirs(SAVE_DIR)
 
-# 2. 세션 상태 초기화
+# 2. 세션 상태 초기화 (새로고침 시 데이터 보존을 위해 초기값 설정)
 if "messages" not in st.session_state:
-    st.session_state.messages = [] # 대화 내용
+    st.session_state.messages = []
 if "dynamic_css" not in st.session_state:
-    st.session_state.dynamic_css = "" # 앱에 주입될 CSS
+    st.session_state.dynamic_css = ""
 if "dynamic_js" not in st.session_state:
-    st.session_state.dynamic_js = "" # 앱에 주입될 JS (고래 등 애니메이션)
+    st.session_state.dynamic_js = ""
 
-# 3. API 설정
+# --- [중요] 스타일 주입부: 코드 최상단에서 매번 실행되어야 함 ---
+def apply_styles():
+    # CSS 주입 (배경, 글자색 등)
+    if st.session_state.dynamic_css:
+        st.markdown(f"<style>{st.session_state.dynamic_css}</style>", unsafe_allow_html=True)
+    
+    # JS 주입 (고래 애니메이션 등)
+    if st.session_state.dynamic_js:
+        # components.html은 iframe이므로, 배경 애니메이션을 위해 투명한 전체 화면 레이어로 설정
+        components.html(f"""
+            <script>
+            {st.session_state.dynamic_js}
+            </script>
+        """, height=0, width=0)
+
+# 3. 앱 시작 시 스타일 즉시 적용
+apply_styles()
+
+# 4. API 설정
 try:
+    # Streamlit Secrets에서 가져오기
     API_KEY = st.secrets["SAMBANOVA_API_KEY"]
     client = OpenAI(api_key=API_KEY, base_url="https://api.sambanova.ai/v1")
 except:
-    st.error("Streamlit Secrets에 SAMBANOVA_API_KEY를 설정해주세요.")
+    st.error("API Key 설정이 필요합니다 (Streamlit Cloud Secrets)")
     st.stop()
 
-# 4. 스타일 및 스크립트 주입 함수
-def apply_custom_style():
-    # CSS 주입
-    st.markdown(f"<style>{st.session_state.dynamic_css}</style>", unsafe_allow_html=True)
-    # JS 주입 (고래 날아다니기 등 애니메이션 처리용)
-    if st.session_state.dynamic_js:
-        components.html(f"<script>{st.session_state.dynamic_js}</script>", height=0)
-
-# 5. 저장/불러오기 기능
-def save_chat(name):
-    data = {
-        "messages": st.session_state.messages,
-        "css": st.session_state.dynamic_css,
-        "js": st.session_state.dynamic_js
-    }
-    with open(os.path.join(SAVE_DIR, f"{name}.json"), "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-def load_chat(name):
-    path = os.path.join(SAVE_DIR, f"{name}.json")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            st.session_state.messages = data["messages"]
-            st.session_state.dynamic_css = data["css"]
-            st.session_state.dynamic_js = data["js"]
-            return True
-    return False
-
-# 6. 사이드바 (저장/불러오기)
+# 5. 사이드바 (저장/불러오기)
 with st.sidebar:
-    st.title("💾 저장소")
-    save_name = st.text_input("현재 상태 저장 이름")
+    st.title("💾 저장/로드")
+    save_name = st.text_input("현재 테마 저장 이름")
     if st.button("서버에 저장"):
         if save_name:
-            save_chat(save_name)
-            st.success("저장 완료!")
-    
+            data = {"messages": st.session_state.messages, "css": st.session_state.dynamic_css, "js": st.session_state.dynamic_js}
+            with open(os.path.join(SAVE_DIR, f"{save_name}.json"), "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+            st.success("저장되었습니다!")
+
     st.divider()
     
-    files = [f.replace(".json", "") for f in os.listdir(SAVE_DIR) if f.endswith(".json")]
-    selected_file = st.selectbox("불러오기", ["선택 안 함"] + files)
+    saved_files = [f.replace(".json", "") for f in os.listdir(SAVE_DIR) if f.endswith(".json")]
+    selected_file = st.selectbox("불러오기", ["선택 안 함"] + saved_files)
     if st.button("로드하기"):
         if selected_file != "선택 안 함":
-            if load_chat(selected_file):
-                st.rerun()
+            with open(os.path.join(SAVE_DIR, f"{selected_file}.json"), "r", encoding="utf-8") as f:
+                data = json.load(f)
+                st.session_state.messages = data["messages"]
+                st.session_state.dynamic_css = data["css"]
+                st.session_state.dynamic_js = data["js"]
+            st.rerun()
 
-    if st.button("🗑️ 모든 초기화"):
+    if st.button("🗑️ 초기화"):
         st.session_state.messages = []
         st.session_state.dynamic_css = ""
         st.session_state.dynamic_js = ""
         st.rerun()
 
-# 7. 메인 채팅 UI
-st.title("🌈 Magic UI AI Chat")
-st.caption("DeepSeek-V3.2가 대화 내용에 맞춰 앱의 UI를 실시간으로 변경합니다.")
+# 6. 채팅 화면 구성
+st.title("🌈 AI UI Magic Chat")
+st.write("디자인 수정을 요청하면 앱이 즉시 변합니다!")
 
-# 현재까지의 스타일 적용
-apply_custom_style()
-
-# 채팅 내역 표시
+# 대화 내용 표시
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# 채팅 입력
-if prompt := st.chat_input("메시지를 입력하세요 (예: 배경에 고래가 날라다니게 해줘)"):
+# 채팅 입력창
+if prompt := st.chat_input("메시지를 입력하세요..."):
+    # 사용자 메시지 저장 및 표시
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     # AI 응답 생성
     with st.chat_message("assistant"):
-        with st.spinner("생각 중..."):
-            system_prompt = f"""You are a UI magician.
-            - If user asks for visual changes (rainbow text, animations, colors), provide CSS/JS code.
-            - CSS selector info:
-              - App background: `.stApp`
-              - Chat messages: `[data-testid="stChatMessage"]`
-              - Chat text: `[data-testid="stChatMessageContent"] p`
-              - Chat input: `[data-testid="stChatInput"] textarea`
-            - Format for styling: Wrap CSS in [CSS] tags and JS in [JS] tags.
-            - If it's a normal conversation, just talk naturally.
-            - ALWAYS include the updated styling code if the user requested a change.
-            - CURRENT CSS: {st.session_state.dynamic_css}
+        with st.spinner("마법을 부리는 중..."):
+            # 시스템 프롬프트: CSS 선택자를 정확히 알려줌
+            system_msg = f"""You are a master of Streamlit UI.
+            If the user asks for design changes, you MUST provide CSS or JS.
+            
+            Selectors:
+            - Entire App: .stApp
+            - Chat Message: [data-testid="stChatMessage"]
+            - User Message: [data-testid="stChatMessage"]:nth-child(even)
+            - Assistant Message: [data-testid="stChatMessage"]:nth-child(odd)
+            - Chat Input Area: [data-testid="stChatInput"]
+            - Text Color: p, h1, h2, h3, span
+            
+            Format:
+            - CSS: Wrap in [CSS] ... [/CSS] tags.
+            - JS: Wrap in [JS] ... [/JS] tags.
+            
+            Current CSS: {st.session_state.dynamic_css}
+            
+            Tell the user naturally what you changed, then include the tags.
             """
             
             response = client.chat.completions.create(
                 model="DeepSeek-V3.2",
-                messages=[{"role": "system", "content": system_prompt}] + st.session_state.messages[-10:],
-                temperature=0.3
+                messages=[{"role": "system", "content": system_msg}] + st.session_state.messages[-6:],
+                temperature=0.2
             )
             
-            full_res = response.choices[0].message.content
+            full_content = response.choices[0].message.content
             
-            # 스타일 추출
-            css_match = re.search(r"\[CSS\](.*?)\[/CSS\]", full_res, re.DOTALL)
-            js_match = re.search(r"\[JS\](.*?)\[/JS\]", full_res, re.DOTALL)
+            # 스타일 데이터 파싱 및 업데이트
+            new_css = re.search(r"\[CSS\](.*?)\[/CSS\]", full_content, re.DOTALL)
+            new_js = re.search(r"\[JS\](.*?)\[/JS\]", full_content, re.DOTALL)
             
-            clean_res = re.sub(r"\[CSS\].*?\[/CSS\]", "", full_res, flags=re.DOTALL)
-            clean_res = re.sub(r"\[JS\].*?\[/JS\]", "", clean_res, flags=re.DOTALL)
+            # 텍스트 답변만 추출
+            clean_text = re.sub(r"\[CSS\].*?\[/CSS\]", "", full_content, flags=re.DOTALL)
+            clean_text = re.sub(r"\[JS\].*?\[/JS\]", "", clean_text, flags=re.DOTALL)
             
-            if css_match:
-                st.session_state.dynamic_css = css_match.group(1).strip()
-            if js_match:
-                st.session_state.dynamic_js = js_match.group(1).strip()
+            if new_css:
+                st.session_state.dynamic_css = new_css.group(1).strip()
+            if new_js:
+                st.session_state.dynamic_js = new_js.group(1).strip()
+                
+            st.markdown(clean_text)
+            st.session_state.messages.append({"role": "assistant", "content": clean_text})
             
-            st.markdown(clean_res)
-            st.session_state.messages.append({"role": "assistant", "content": clean_res})
-            
-            # 스타일 변경 사항이 있으면 즉시 리런해서 반영
-            if css_match or js_match:
+            # 스타일이 바뀌었으므로 즉시 리런하여 최상단 apply_styles() 호출
+            if new_css or new_js:
                 st.rerun()
