@@ -2,96 +2,110 @@ import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
 import re
+import base64
 
 # 페이지 설정
-st.set_page_config(layout="wide", page_title="SambaNova AI Code Builder")
+st.set_page_config(layout="wide", page_title="SambaNova AI Web Builder")
 
-# 스타일 설정
+# 스타일 설정 (버튼 디자인 등)
 st.markdown("""
     <style>
-    .stButton>button { width: 100%; background-color: #007BFF; color: white; height: 3em; }
-    iframe { border: 1px solid #ddd; border-radius: 8px; background: white; }
+    .stButton>button { width: 100%; height: 3em; font-weight: bold; }
+    .preview-button {
+        display: inline-block;
+        padding: 0.5em 1em;
+        color: white;
+        background-color: #28a745;
+        text-decoration: none;
+        border-radius: 5px;
+        text-align: center;
+        font-weight: bold;
+        margin-top: 10px;
+        width: 100%;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# 1. API 키 설정 (Streamlit Secrets 사용)
-# 배포 시 Streamlit Cloud 설정에서 SAMBANOVA_API_KEY를 추가해야 합니다.
+# 1. API 키 설정 (Streamlit Secrets)
 try:
     API_KEY = st.secrets["SAMBANOVA_API_KEY"]
-    BASE_URL = "https://api.sambanova.ai/v1"
-    client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+    client = OpenAI(api_key=API_KEY, base_url="https://api.sambanova.ai/v1")
 except Exception:
-    st.error("❌ API Key가 설정되지 않았습니다. Streamlit Cloud의 Secrets 설정에서 SAMBANOVA_API_KEY를 추가해주세요.")
+    st.error("❌ API Key를 확인해주세요. (Streamlit Secrets 설정 필요)")
     st.stop()
 
-# 2. 사용 가능한 모델 목록 가져오기
-@st.cache_data(ttl=3600) # 모델 목록은 1시간 동안 캐싱
+# 2. 모델 목록 가져오기
+@st.cache_data(ttl=3600)
 def get_models():
     try:
         models = client.models.list()
         return [model.id for model in models.data]
-    except Exception as e:
-        st.sidebar.error(f"모델 목록을 불러오지 못했습니다: {e}")
-        return ["DeepSeek-V3", "Meta-Llama-3.1-405B-Instruct", "Meta-Llama-3.1-70B-Instruct"]
+    except:
+        return ["DeepSeek-V3", "DeepSeek-R1"]
 
-# 사이드바 구성
+# 사이드바
 with st.sidebar:
     st.title("🤖 모델 설정")
     available_models = get_models()
-    selected_model = st.selectbox("사용할 모델을 선택하세요", available_models, index=0)
+    selected_model = st.selectbox("모델 선택", available_models, index=0)
     st.divider()
-    st.info("이 앱은 SambaNova API를 사용하여 실시간 HTML 코드를 생성합니다.")
+    st.write("아이패드 배포용 버전")
 
-# 코드 추출 정규식 함수
+# 코드 추출 함수
 def extract_html_code(text):
-    # ```html ... ``` 또는 ``` ... ``` 블록 추출
     pattern = r"```(?:html)?\n(.*?)```"
     match = re.search(pattern, text, re.DOTALL)
     if match:
         return match.group(1).strip()
     return text.strip()
 
-# 메인 UI
-st.title("🚀 AI Real-time HTML Designer")
-
+# 세션 상태 초기화
 if "html_code" not in st.session_state:
-    st.session_state.html_code = """
-    <div style="display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;">
-        <h2 style="color:#888;">왼쪽에 프롬프트를 입력하고 버튼을 눌러보세요!</h2>
-    </div>
-    """
+    st.session_state.html_code = ""
 
-# 프롬프트 입력창
-prompt = st.text_area("어떤 웹 페이지를 만들고 싶나요?", placeholder="예: 깔끔한 다크모드 대시보드, 애니메이션이 있는 시계 등", height=150)
+st.title("🚀 AI HTML Full-Screen Builder")
 
-if st.button("코드 생성 및 실행"):
+# 입력 영역
+prompt = st.text_area("어떤 웹사이트를 만들까요?", placeholder="예: 화려한 네온 사인이 들어간 3D 타이머 웹사이트 만들어줘", height=150)
+
+if st.button("코드 생성하기 ✨"):
     if prompt:
-        with st.spinner(f"{selected_model} 모델이 코드를 생성 중..."):
+        with st.spinner("AI가 코드를 작성 중입니다..."):
             try:
                 response = client.chat.completions.create(
                     model=selected_model,
                     messages=[
-                        {"role": "system", "content": "You are a master web developer. Create a single-file HTML/CSS/JS solution. Output ONLY the code inside markdown code blocks."},
+                        {"role": "system", "content": "You are a master web developer. Create a single-file HTML/CSS/JS solution. Include all dependencies in the file. Output ONLY the code inside markdown code blocks."},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.1
                 )
-                raw_content = response.choices[0].message.content
-                st.session_state.html_code = extract_html_code(raw_content)
+                st.session_state.html_code = extract_html_code(response.choices[0].message.content)
             except Exception as e:
-                st.error(f"API 호출 중 오류 발생: {e}")
+                st.error(f"오류 발생: {e}")
     else:
-        st.warning("프롬프트를 입력해주세요.")
+        st.warning("프롬프트를 입력하세요.")
 
-# 화면 분할 (코드창 4 : 미리보기 6 비율)
-col_code, col_preview = st.columns([4, 6])
+# 결과가 있을 때만 표시
+if st.session_state.html_code:
+    col_code, col_preview = st.columns([1, 1])
 
-with col_code:
-    st.subheader("📄 Generated Code")
-    st.code(st.session_state.html_code, language="html", line_numbers=True)
-    st.download_button("index.html 다운로드", st.session_state.html_code, file_name="index.html")
+    with col_code:
+        st.subheader("📄 Generated Code")
+        st.code(st.session_state.html_code, language="html", line_numbers=True)
+        st.download_button("index.html 다운로드", st.session_state.html_code, file_name="index.html")
 
-with col_preview:
-    st.subheader("💻 Live Preview")
-    # iframe 생성
-    components.html(st.session_state.html_code, height=700, scrolling=True)
+    with col_preview:
+        st.subheader("💻 Preview Options")
+        
+        # 1. 새 탭에서 열기 버튼 구현 (Base64 인코딩 사용)
+        b64_code = base64.b64encode(st.session_state.html_code.encode()).decode()
+        # 데이터 URI를 사용하여 새 탭에서 즉시 열기
+        html_link = f'<a href="data:text/html;base64,{b64_code}" target="_blank" class="preview-button">🌐 새 탭에서 전체 화면으로 보기</a>'
+        st.markdown(html_link, unsafe_allow_html=True)
+        
+        st.info("위 버튼을 누르면 새 창에서 디자인을 깨짐 없이 확인할 수 있습니다.")
+        
+        # 2. 작은 미리보기 (참고용)
+        st.caption("간이 미리보기")
+        components.html(st.session_state.html_code, height=400, scrolling=True)
